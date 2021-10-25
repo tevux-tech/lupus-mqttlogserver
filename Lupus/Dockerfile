@@ -9,16 +9,16 @@ RUN rm -rf /var/lib/apt/lists/*
 
 FROM mcr.microsoft.com/dotnet/sdk:5.0-buster-slim-amd64 AS build
 WORKDIR /src
-COPY ["Tinkerforge.AirQualityMonitor/Tinkerforge.AirQualityMonitor.csproj", "Tinkerforge.AirQualityMonitor/"]
-RUN dotnet restore "Tinkerforge.AirQualityMonitor/Tinkerforge.AirQualityMonitor.csproj"
+COPY ["Lupus/Lupus.csproj", "Lupus/"]
+RUN dotnet restore "Lupus/Lupus.csproj"
 COPY . .
-WORKDIR "/src/Tinkerforge.AirQualityMonitor"
-RUN dotnet build "Tinkerforge.AirQualityMonitor.csproj" -c Release -o /app/build
+WORKDIR "/src/Lupus"
+RUN dotnet build "Lupus.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "Tinkerforge.AirQualityMonitor.csproj" -c Release -o /app/publish
+RUN dotnet publish "Lupus.csproj" -c Release -o /app/publish
 
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "Tinkerforge.AirQualityMonitor.dll"]
+ENTRYPOINT ["dotnet", "Lupus.dll"]

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -8,26 +9,21 @@ using NLog.Targets;
 
 namespace Lupus {
     class Program {
-        private static Logger _log = LogManager.GetCurrentClassLogger();
+        private static Logger _lupusLog = LogManager.GetCurrentClassLogger();
+        private static Dictionary<string, Logger> _allTheLoggers = new Dictionary<string, Logger>();
 
         static void Main(string[] args) {
             // Configuring NLog.
-            NLog.Layouts.Layout localLayout = "${longdate}|${uppercase:${level}}|${message} ${onexception}";
             var config = new LoggingConfiguration();
 
-            var logfile = new FileTarget("file");
-            logfile.Layout = localLayout;
-            logfile.MaxArchiveFiles = 30;
-            logfile.ArchiveDateFormat = "yyyy-MM";
-            logfile.ArchiveNumbering = ArchiveNumberingMode.Date;
-            logfile.ArchiveEvery = FileArchivePeriod.Month;
-            logfile.FileName = "logs/ApplicationLog.txt";
-            config.AddRule(LogLevel.Trace, LogLevel.Fatal, logfile, "Lupus.*");
+            Helpers.AddFileOutputToLogger(config);
 
             var logconsole = new ColoredConsoleTarget("console");
-            config.AddRule(LogLevel.Info, LogLevel.Fatal, logconsole, "Lupus.*");
+            logconsole.Layout = Helpers.LocalNlogLayout;
+            config.AddRule(LogLevel.Info, LogLevel.Fatal, logconsole);
 
             var logdebug = new DebuggerTarget("debugger");
+            logdebug.Layout = Helpers.LocalNlogLayout;
             config.AddRule(LogLevel.Trace, LogLevel.Fatal, logdebug, "Lupus.*");
 
             LogManager.Configuration = config;
@@ -36,14 +32,14 @@ namespace Lupus {
                 Directory.CreateDirectory("logs");
             }
 
-            _log.Info("Loading ENV variables...");
+            _lupusLog.Info("Loading ENV variables...");
             var brokerIp = Environment.GetEnvironmentVariable("MQTT_BROKER_IP");
             if (string.IsNullOrEmpty(brokerIp)) {
-                _log.Warn("Evironment variable \"MQTT_BROKER_IP\" is not provided. Using 127.0.0.1.");
+                _lupusLog.Warn("Evironment variable \"MQTT_BROKER_IP\" is not provided. Using 127.0.0.1.");
                 brokerIp = "127.0.0.1";
             }
 
-            _log.Info("Setting up MQTT broker connection...");
+            _lupusLog.Info($"Setting up MQTT broker connection to {brokerIp}...");
             var channelOptions = new Tevux.Protocols.Mqtt.ChannelConnectionOptions();
             channelOptions.SetHostname(brokerIp);
 
@@ -51,29 +47,34 @@ namespace Lupus {
             logConnection.Initialize();
             logConnection.PublishReceived += (sender, e) => {
                 var topicParts = e.Topic.Split('/');
-                var deviceName = topicParts[2];
+                var logger = topicParts[2];
                 var level = topicParts[3];
-                var message = Encoding.UTF8.GetString(e.Message);
+                var contentToLog = Encoding.UTF8.GetString(e.Message);
+
+                if (_allTheLoggers.ContainsKey(logger) == false) {
+                    _allTheLoggers.Add(logger, LogManager.GetLogger(logger));
+                }
+                var pickedLogger = _allTheLoggers[logger];
 
                 switch (level.ToLower()) {
                     case "trace":
-                        _log.Trace(message);
+                        pickedLogger.Trace(contentToLog);
                         break;
 
                     case "info":
-                        _log.Info(message);
+                        pickedLogger.Info(contentToLog);
                         break;
 
                     case "warn":
-                        _log.Warn(message);
+                        pickedLogger.Warn(contentToLog);
                         break;
 
                     case "error":
-                        _log.Error(message);
+                        pickedLogger.Error(contentToLog);
                         break;
 
                     case "fatal":
-                        _log.Fatal(message);
+                        pickedLogger.Fatal(contentToLog);
                         break;
                 }
             };
@@ -81,7 +82,7 @@ namespace Lupus {
             logConnection.ConnectAndWait(channelOptions);
             logConnection.Subscribe("tevux/logs/#", Tevux.Protocols.Mqtt.QosLevel.AtLeastOnce);
 
-            _log.Info("Initialization completed.");
+            _lupusLog.Info("Initialization completed.");
             Thread.Sleep(-1);
         }
     }
